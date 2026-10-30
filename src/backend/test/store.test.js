@@ -26,6 +26,15 @@ test('itemsFor builds type/id keys per dataset', () => {
   assert.notEqual(alerts[0].id, alerts[1].id);
 });
 
+test("a record's own type field never replaces the partition key and survives a round trip", async () => {
+  const alerts = itemsFor('alerts', [{ timestamp: 't1', type: 'carbon', severity: 'info' }]);
+  assert.equal(alerts[0].type, 'alert');
+  assert.equal(alerts[0].recordType, 'carbon');
+  const store = new DynamoStore('AURA', fakeClient([...alerts, ...itemsFor('forecast', { forecast: [1] })]));
+  assert.deepEqual(await store.get('alerts'), [{ timestamp: 't1', type: 'carbon', severity: 'info' }]);
+  assert.deepEqual(await store.get('forecast'), { forecast: [1] });
+});
+
 test('DynamoStore pages through results, strips keys and orders alerts newest first', async () => {
   const energy = itemsFor('energy', ['t3', 't1', 't2'].map((timestamp) => ({ timestamp, energyKwh: 1 })));
   const alerts = itemsFor('alerts', [{ timestamp: '2019-01-02' }, { timestamp: '2019-01-01' }, { timestamp: '2019-01-03' }]);

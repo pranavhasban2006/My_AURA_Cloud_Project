@@ -19,13 +19,20 @@ function dataset(name) {
   return ds;
 }
 
+// Records can carry their own `type` field (an alert's scaling/carbon/forecast kind), which would collide
+// with the table's partition key; it is stored as `recordType` and restored on read.
+function withKeys(record, type, id) {
+  const { type: recordType, ...rest } = record;
+  return { ...rest, ...(recordType !== undefined && { recordType }), type, id };
+}
+
 // Sort keys: ISO timestamps keep energy and alerts in time order; the suffix keeps same-time alerts distinct.
 export function itemsFor(name, data) {
   const { type, single } = dataset(name);
-  if (single) return [{ type, id: 'latest', ...data }];
-  if (name === 'energy') return data.map((r) => ({ type, id: r.timestamp, ...r }));
-  if (name === 'allocations') return data.map((r) => ({ type, id: r.resourceId, ...r }));
-  return data.map((r, i) => ({ type, id: `${r.timestamp}#${String(i).padStart(5, '0')}`, ...r }));
+  if (single) return [withKeys(data, type, 'latest')];
+  if (name === 'energy') return data.map((r) => withKeys(r, type, r.timestamp));
+  if (name === 'allocations') return data.map((r) => withKeys(r, type, r.resourceId));
+  return data.map((r, i) => withKeys(r, type, `${r.timestamp}#${String(i).padStart(5, '0')}`));
 }
 
 export class FileStore {
@@ -71,7 +78,9 @@ export class DynamoStore {
     if (!items.length) {
       throw Object.assign(new Error(`no ${type} items in ${this.tableName}`), { code: 'ENOENT' });
     }
-    const records = items.map(({ type: _t, id: _id, ...rest }) => rest);
+    const records = items.map(({ type: _t, id: _id, recordType, ...rest }) => (
+      recordType !== undefined ? { ...rest, type: recordType } : rest
+    ));
     return single ? records[0] : records;
   }
 }

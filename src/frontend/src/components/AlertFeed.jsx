@@ -16,7 +16,8 @@ export default function AlertFeed() {
       <h3 className="font-semibold text-gray-800 mb-4">System Alerts</h3>
       <div className="space-y-4 overflow-y-auto pr-2" style={{ maxHeight: '300px' }}>
         {data.map((alert, idx) => {
-          const isCarbon = alert.type === 'carbon';
+          // recordType: the API on AWS returns an alert's own type under this name until it runs the newer store.js
+          const isCarbon = (alert.type ?? alert.recordType) === 'carbon';
           const Icon = isCarbon ? CloudLightning : ServerCrash;
           let bc;
           if (alert.severity === 'critical') bc = 'bg-red-100 text-red-700';
