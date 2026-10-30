@@ -24,7 +24,8 @@ Parameters:
     Description: Optional EC2 key pair for SSH (leave empty to use SSM Session Manager only)
   InstanceType:
     Type: String
-    Default: t3.micro
+    Default: t2.micro
+    Description: Free-tier instance (t2.micro, or t3.micro in regions without t2). The live simulator needs about 4 GB (t3.medium) and is disabled below
   LatestAmi:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
@@ -47,7 +48,7 @@ Resources:
       StreamSpecification:
         StreamViewType: NEW_IMAGE
       PointInTimeRecoverySpecification:
-        PointInTimeRecoveryEnabled: true
+        PointInTimeRecoveryEnabled: false
 
   UserPool:
     Type: AWS::Cognito::UserPool
@@ -117,7 +118,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: aura-alert-publisher
-      Runtime: nodejs24.x
+      Runtime: nodejs22.x
       Handler: index.handler
       Role: !GetAtt AlertFunctionRole.Arn
       Timeout: 30
@@ -255,6 +256,8 @@ Resources:
         Fn::Base64: !Sub |
           #!/bin/bash
           set -euxo pipefail
+          # 1 GB swap: the free-tier instance has 1 GB RAM, too little for npm install on its own
+          fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
           dnf install -y git nodejs npm
           git clone --branch ${BackendRepoBranch} ${BackendRepoUrl} /opt/aura
           cd /opt/aura/${BackendRepoDir}
@@ -266,6 +269,7 @@ Resources:
           AWS_REGION=${AWS::Region}
           COGNITO_USER_POOL_ID=${UserPool}
           COGNITO_CLIENT_ID=${UserPoolClient}
+          ENGINE_WARM=false
           CORS_ORIGIN=http://${DashboardBucketName}.s3-website-${AWS::Region}.amazonaws.com
           ENV
           cat > /etc/systemd/system/aura-api.service <<UNIT
