@@ -1,13 +1,21 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { signIn } from 'aws-amplify/auth';
+import { signIn, confirmSignIn } from 'aws-amplify/auth';
 
 export default function Login({ onLogin }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  // Admin-created Cognito users must replace their emailed temporary password on first sign-in
+  const [needsNewPassword, setNeedsNewPassword] = useState(false);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  const finish = () => {
+    onLogin(email);
+    navigate('/overview');
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -15,15 +23,22 @@ export default function Login({ onLogin }) {
     setError(null);
     try {
       if (import.meta.env.VITE_USE_MOCK === "true") {
-        setTimeout(() => {
-          onLogin(email);
-          navigate('/overview');
-        }, 500);
-      } else {
-        await signIn({ username: email, password });
-        onLogin(email);
-        navigate('/overview');
+        setTimeout(finish, 500);
+        return;
       }
+      if (needsNewPassword) {
+        const { isSignedIn } = await confirmSignIn({ challengeResponse: newPassword });
+        if (isSignedIn) return finish();
+        throw new Error('Could not complete sign-in. Please try again.');
+      }
+      const { isSignedIn, nextStep } = await signIn({ username: email, password });
+      if (isSignedIn) return finish();
+      if (nextStep?.signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED') {
+        setNeedsNewPassword(true);
+        setLoading(false);
+        return;
+      }
+      throw new Error(`Additional sign-in step required: ${nextStep?.signInStep ?? 'unknown'}`);
     } catch (err) {
       setError(err.message || 'Error signing in');
       setLoading(false);
@@ -36,19 +51,31 @@ export default function Login({ onLogin }) {
         <h2 className="text-2xl font-bold text-center text-gray-900 mb-6">AURA Login</h2>
         {error && <div className="bg-red-50 text-red-600 p-3 rounded mb-4 text-sm">{error}</div>}
         <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Email</label>
-            <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
-                   className="mt-1 block w-full rounded-md border border-gray-300 p-2 text-gray-900" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Password</label>
-            <input type="password" required value={password} onChange={e => setPassword(e.target.value)}
-                   className="mt-1 block w-full rounded-md border border-gray-300 p-2 text-gray-900" />
-          </div>
+          {needsNewPassword ? (
+            <div>
+              <p className="text-sm text-gray-600 mb-3">First sign-in: choose your own password (at least 10 characters, with upper and lower case letters and a number).</p>
+              <label className="block text-sm font-medium text-gray-700">New password</label>
+              <input type="password" required minLength={10} value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                     autoComplete="new-password"
+                     className="mt-1 block w-full rounded-md border border-gray-300 p-2 text-gray-900" />
+            </div>
+          ) : (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Email</label>
+                <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
+                       className="mt-1 block w-full rounded-md border border-gray-300 p-2 text-gray-900" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Password</label>
+                <input type="password" required value={password} onChange={e => setPassword(e.target.value)}
+                       className="mt-1 block w-full rounded-md border border-gray-300 p-2 text-gray-900" />
+              </div>
+            </>
+          )}
           <button type="submit" disabled={loading}
                   className="w-full py-2 px-4 shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none disabled:opacity-50">
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Signing in...' : needsNewPassword ? 'Set password and sign in' : 'Sign In'}
           </button>
         </form>
       </div>
